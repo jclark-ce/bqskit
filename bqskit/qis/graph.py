@@ -471,6 +471,8 @@ class CouplingGraph(Collection[Tuple[int, int]]):
         for qudit in range(self.num_qudits):
             # Get every valid set containing `qudit` with size == size
             self._location_search(locations, set(), qudit, size)
+            
+        locations = [CircuitLocation(list(group)) for group in locations if len(group) == size]
 
         return list(locations)
 
@@ -501,10 +503,14 @@ class CouplingGraph(Collection[Tuple[int, int]]):
 
         curr_path = path.copy()
         curr_path.add(vertex)
-
-        if len(curr_path) == limit:
-            locations.add(CircuitLocation(list(curr_path)))
+        
+        if frozenset(curr_path) in locations:
             return
+
+        if len(curr_path) <= limit:
+            locations.add(frozenset(curr_path))
+            if len(curr_path) == limit:
+                return
 
         frontier: set[int] = {
             qudit
