@@ -539,9 +539,8 @@ class CouplingGraph(Collection[Tuple[int, int]]):
 
             subgraph.append(w)
             self._extend_subgraph(
-                size, subgraph, new_extension, set(
-                    exclusion,
-                ), vertex, subgraphs, include_smaller,
+                size, subgraph, new_extension, set(exclusion),
+                vertex, subgraphs, include_smaller,
             )
             subgraph.pop()
 
