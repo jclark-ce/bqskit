@@ -43,6 +43,8 @@ BQSKit Gates (:mod:`bqskit.ir.gates`)
     SwapGate
     SqrtXGate
     SXGate
+    SqrtXdgGate
+    SXdgGate
     SycamoreGate
     TGate
     TdgGate
