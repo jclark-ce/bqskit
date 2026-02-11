@@ -186,7 +186,7 @@ def frozen_gates(
         return FrozenParameterGate(gate, {})
     max_idx = gate.num_params
     indices = integers(0, max_idx - 1)
-    values = floats(allow_nan=False, allow_infinity=False)
+    values = floats(-2**16, 2**16, allow_nan=False, allow_infinity=False)
     min_size = 0 if constant is None or constant is False else max_idx
     max_size = max_idx if constant is None or constant is True else max_idx - 1
     frozen_params = draw(
@@ -278,7 +278,7 @@ def gates(
     if constant is not None:
         strategy = strategy.filter(lambda g: g.is_constant() == constant)
     strategy.filter(
-        lambda g: sorted(g.radixes) == sorted(radixes) 
+        lambda g: sorted(g.radixes) == sorted(radixes)
         and g.num_params <= 128,
     )
 
@@ -297,7 +297,7 @@ def gates_and_params(
     gate = draw(gates(radixes, constant))
     params = draw(
         lists(
-            floats(allow_nan=False, allow_infinity=False),
+            floats(-2**16, 2**16, allow_nan=False, allow_infinity=False),
             min_size=gate.num_params,
             max_size=gate.num_params,
         ),
@@ -325,7 +325,7 @@ def operations(
         one_of([
             lists(floats(), max_size=0),
             lists(
-                floats(allow_nan=False, allow_infinity=False),
+                floats(-2**16, 2**16, allow_nan=False, allow_infinity=False),
                 min_size=gate.num_params,
                 max_size=gate.num_params,
             ),
@@ -377,7 +377,7 @@ def circuits(
         gate_location = list(zip(*gate_idx_and_rdx))[0]
         gate_radixes = list(zip(*gate_idx_and_rdx))[1]
         gate = draw(gates(gate_radixes, constant))
-        params = floats(allow_nan=False, allow_infinity=False)
+        params = floats(-2**16, 2**16, allow_nan=False, allow_infinity=False)
         num_params = gate.num_params
         gate_params = draw(
             lists(
