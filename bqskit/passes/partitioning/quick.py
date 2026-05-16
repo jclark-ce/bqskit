@@ -110,12 +110,15 @@ class QuickPartitioner(BasePass):
                         for qudit, start in bin.starts.items()
                     ):
                         to_remove.append(bin)
-                        subc = circuit.get_slice(bin.op_list)
                         loc = list(sorted(bin.qudits))
+                        subcs: list[tuple[tuple[int, ...], Circuit]] = [
+                            (tuple(loc), circuit.get_slice(bin.op_list)),
+                        ]
 
                         # Merge previously placed blocks if possible
                         merging = not isinstance(bin, BarrierBin)
                         while merging:
+                            loc_set = set(loc)
                             merging = False
                             for p in partitioned_circuit.rear:
                                 op = partitioned_circuit[p]
@@ -130,37 +133,56 @@ class QuickPartitioner(BasePass):
                                     # measurement, or reset
                                     continue
                                 qudits = list(op.location)
+                                qudits_set = set(op.location)
 
                                 # if qudits is subset of loc
-                                if all(q in loc for q in qudits):
+                                if all(q in loc_set for q in qudits):
                                     prev_op = partitioned_circuit.pop(p)
                                     pg = cast(CircuitGate, prev_op.gate)
-                                    prev_circ = pg._circuit.copy()
-                                    local_loc = [loc.index(q) for q in qudits]
-                                    subc.insert_circuit(0, prev_circ, local_loc)
+                                    prev_circ = pg._circuit  # .copy()
+                                    subcs.append((tuple(qudits), prev_circ))
 
                                     # retry merging
                                     merging = True
                                     break
 
                                 # if loc is a subset of qudits
-                                if all(q in qudits for q in loc):
+                                if all(q in qudits_set for q in loc):
                                     prev_op = partitioned_circuit.pop(p)
                                     pg = cast(CircuitGate, prev_op.gate)
-                                    prev_circ = pg._circuit.copy()
-                                    lloc = [qudits.index(q) for q in loc]
-                                    prev_circ.append_circuit(subc, lloc)
-                                    subc.become(prev_circ)
+                                    prev_circ = pg._circuit  # .copy()
+                                    subcs.append((tuple(loc), prev_circ))
                                     loc = qudits
 
                                     # retry merging
                                     merging = True
                                     break
 
+                        # construct new subcircuit from subcs
+                        new_loc = list(
+                            sorted(
+                                {
+                                    q for frag_qudits,
+                                    frag_circ in subcs for q in frag_qudits
+                                },
+                            ),
+                        )
+                        new_loc_indexes = {q: i for i, q in enumerate(new_loc)}
+                        new_subc = Circuit(
+                            len(new_loc), [circuit.radixes[q] for q in new_loc],
+                        )
+                        for frag_qudits, frag_circ in reversed(subcs):
+                            new_subc.append_circuit(
+                                frag_circ, [
+                                    new_loc_indexes[q]
+                                    for q in frag_qudits
+                                ], False,
+                            )
+
                         # Place circuit
                         partitioned_circuit.append_circuit(
-                            subc,
-                            loc,
+                            new_subc,
+                            new_loc,
                             not isinstance(bin, BarrierBin),
                             True,
                         )
@@ -207,10 +229,10 @@ class QuickPartitioner(BasePass):
                 continue
 
             # Get all the currently active bins that can have op added to them
-            admissible_bins = [
-                bin for bin in overlapping_bins
+            admissible_bins = {
+                bin: None for bin in overlapping_bins
                 if bin.can_accommodate(location, self.block_size)
-            ]
+            }
 
             # Close location on inadmissible overlapping bins
             for bin in overlapping_bins:
@@ -234,7 +256,7 @@ class QuickPartitioner(BasePass):
                         break
 
                 if not found:
-                    selected_bin = admissible_bins[0]
+                    selected_bin = next(iter(admissible_bins.keys()))
 
                 # Close the overlapping qudits on the other admissible bins
                 for bin in admissible_bins:
@@ -257,8 +279,7 @@ class QuickPartitioner(BasePass):
                 if active_bin == selected_bin:
                     continue
 
-                indirect = active_bin.blocked_qudits
-                indirect = indirect.union(active_bin.qudits)
+                indirect = active_bin.blocked_qudits | active_bin.qudits
                 indirect = indirect.intersection(selected_bin.qudits)
                 if len(indirect) != 0:
                     active_bin.blocked_qudits.update(selected_bin.qudits)
@@ -273,7 +294,7 @@ class QuickPartitioner(BasePass):
         # Close remaining active bins
         for b in active_bins:
             if b is not None:
-                close_bin_qudits(b, b.qudits, circuit.num_cycles)
+                close_bin_qudits(b, list(b.qudits), circuit.num_cycles)
 
         # Process remaining bins
         process_pending_bins()
@@ -299,7 +320,7 @@ class Bin:
         """Can start a new bin from an operation."""
 
         # The qudits in the bin
-        self.qudits: list[int] = []
+        self.qudits: set[int] = set()
 
         # The starting cycles for each qudit (inclusive)
         self.starts: dict[int, int] = {}
@@ -308,7 +329,7 @@ class Bin:
         self.ends: dict[int, int | None] = {}
 
         # The qudits that can still accept new gates
-        self.active_qudits: list[int] = []
+        self.active_qudits: set[int] = set()
 
         # Qudits that cannot be added to the bin
         self.blocked_qudits: set[int] = set()
@@ -332,8 +353,8 @@ class Bin:
         """Add an operation the bin."""
         for q in location:
             if q not in self.qudits:
-                self.qudits.append(q)
-                self.active_qudits.append(q)
+                self.qudits.add(q)
+                self.active_qudits.add(q)
                 self.starts[q] = point.cycle
                 self.ends[q] = None
         self.op_list.append(point)
@@ -358,7 +379,7 @@ class Bin:
         )
 
         size_limit = max(block_size, len(self.qudits))
-        too_big = len(set(self.qudits + list(loc))) > size_limit
+        too_big = len(self.qudits | set(loc)) > size_limit
 
         return overlapping_qudits_are_active and not too_big
 
